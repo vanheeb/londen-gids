@@ -1,7 +1,17 @@
-const CACHE = "londen-0e9e65e2f6";
-const FILES = ["./", "index.html", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
-self.addEventListener("install", e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())));
-self.addEventListener("activate", e => e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())));
+const APP = "londen-app-0347ac0a40", MAP = "londen-map-e1eb4e0f05";
+const APP_FILES = ["./", "index.html", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
+const MAP_FILES = ["londen.pmtiles", "photos/0.jpg", "photos/1.jpg", "photos/100.jpg", "photos/101.jpg", "photos/102.jpg", "photos/103.jpg", "photos/104.jpg", "photos/105.jpg", "photos/106.jpg", "photos/11.jpg", "photos/12.jpg", "photos/13.jpg", "photos/14.jpg", "photos/15.jpg", "photos/16.jpg", "photos/17.jpg", "photos/18.jpg", "photos/19.jpg", "photos/2.jpg", "photos/20.jpg", "photos/21.jpg", "photos/22.jpg", "photos/23.jpg", "photos/24.jpg", "photos/25.jpg", "photos/26.jpg", "photos/27.jpg", "photos/28.jpg", "photos/29.jpg", "photos/3.jpg", "photos/30.jpg", "photos/31.jpg", "photos/32.jpg", "photos/33.jpg", "photos/34.jpg", "photos/35.jpg", "photos/36.jpg", "photos/37.jpg", "photos/38.jpg", "photos/39.jpg", "photos/4.jpg", "photos/40.jpg", "photos/41.jpg", "photos/42.jpg", "photos/43.jpg", "photos/44.jpg", "photos/45.jpg", "photos/46.jpg", "photos/47.jpg", "photos/48.jpg", "photos/49.jpg", "photos/5.jpg", "photos/50.jpg", "photos/51.jpg", "photos/52.jpg", "photos/53.jpg", "photos/54.jpg", "photos/55.jpg", "photos/56.jpg", "photos/57.jpg", "photos/58.jpg", "photos/59.jpg", "photos/6.jpg", "photos/60.jpg", "photos/61.jpg", "photos/62.jpg", "photos/63.jpg", "photos/64.jpg", "photos/65.jpg", "photos/66.jpg", "photos/67.jpg", "photos/68.jpg", "photos/69.jpg", "photos/7.jpg", "photos/70.jpg", "photos/71.jpg", "photos/72.jpg", "photos/73.jpg", "photos/74.jpg", "photos/75.jpg", "photos/76.jpg", "photos/77.jpg", "photos/78.jpg", "photos/79.jpg", "photos/8.jpg", "photos/80.jpg", "photos/81.jpg", "photos/82.jpg", "photos/83.jpg", "photos/84.jpg", "photos/85.jpg", "photos/86.jpg", "photos/87.jpg", "photos/89.jpg", "photos/9.jpg", "photos/90.jpg", "photos/91.jpg", "photos/92.jpg", "photos/93.jpg", "photos/94.jpg", "photos/95.jpg", "photos/96.jpg", "photos/97.jpg", "photos/98.jpg", "photos/99.jpg", "vendor/basemaps.js", "vendor/fonts/Noto%20Sans%20Italic/0-255.pbf", "vendor/fonts/Noto%20Sans%20Italic/256-511.pbf", "vendor/fonts/Noto%20Sans%20Italic/8192-8447.pbf", "vendor/fonts/Noto%20Sans%20Medium/0-255.pbf", "vendor/fonts/Noto%20Sans%20Medium/256-511.pbf", "vendor/fonts/Noto%20Sans%20Medium/8192-8447.pbf", "vendor/fonts/Noto%20Sans%20Regular/0-255.pbf", "vendor/fonts/Noto%20Sans%20Regular/256-511.pbf", "vendor/fonts/Noto%20Sans%20Regular/8192-8447.pbf", "vendor/maplibre-gl.css", "vendor/maplibre-gl.js", "vendor/pmtiles.js", "vendor/sprites/dark.json", "vendor/sprites/dark.png", "vendor/sprites/dark%402x.json", "vendor/sprites/dark%402x.png", "vendor/sprites/light.json", "vendor/sprites/light.png", "vendor/sprites/light%402x.json", "vendor/sprites/light%402x.png"];
+self.addEventListener("install", e => e.waitUntil((async () => {
+  const m = await caches.open(MAP);
+  for (const f of MAP_FILES) {   // reuse files from an older cache (the 18 MB map rarely changes), fetch only what is new
+    if (await m.match(f)) continue;
+    const old = await caches.match(f);
+    await (old ? m.put(f, old) : m.add(f));
+  }
+  await (await caches.open(APP)).addAll(APP_FILES);
+  self.skipWaiting();
+})()));
+self.addEventListener("activate", e => e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== APP && k !== MAP).map(k => caches.delete(k)))).then(() => self.clients.claim())));
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET" || new URL(e.request.url).origin !== location.origin) return;
   e.respondWith(caches.match(e.request, { ignoreSearch: true }).then(hit => hit || fetch(e.request)));
