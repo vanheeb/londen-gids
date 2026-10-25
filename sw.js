@@ -6,9 +6,9 @@ self.addEventListener("install", e => e.waitUntil((async () => {
   for (const f of MAP_FILES) {   // reuse files from an older cache (the 18 MB map rarely changes), fetch only what is new
     if (await m.match(f)) continue;
     const old = await caches.match(f);
-    await (old ? m.put(f, old) : m.add(f));
+    await (old ? m.put(f, old) : m.add(new Request(f, { cache: "reload" })));
   }
-  await (await caches.open(APP)).addAll(APP_FILES);
+  await (await caches.open(APP)).addAll(APP_FILES.map(f => new Request(f, { cache: "reload" })));  // bypass the HTTP cache (GitHub Pages: 10 min)
   self.skipWaiting();
 })()));
 self.addEventListener("activate", e => e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== APP && k !== MAP).map(k => caches.delete(k)))).then(() => self.clients.claim())));
