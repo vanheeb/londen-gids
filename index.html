@@ -445,6 +445,8 @@ const swReady = ("serviceWorker" in navigator && (location.protocol === "https:"
   ? navigator.serviceWorker.register("sw.js").then(() => Promise.race([navigator.serviceWorker.ready, new Promise(r => setTimeout(r, 4000))])).catch(() => null)
   : Promise.resolve();
 swReady.then(initMap);
+if ("serviceWorker" in navigator && navigator.serviceWorker.controller) // an update took over: show the new version right away
+  navigator.serviceWorker.addEventListener("controllerchange", () => location.reload());
 </script>
 </body>
 </html>
