@@ -35,6 +35,9 @@ nav button.on{color:var(--accent);font-weight:600}
 #v-map{--top:env(safe-area-inset-top)}
 .fab{position:absolute;right:10px;width:44px;height:44px;border-radius:50%;border:0;background:var(--surface);box-shadow:var(--shadow);font-size:1.2rem;z-index:5;margin-top:var(--top)}
 .fab.on{background:#1e78ff;color:#fff}
+#bNorth{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
+#needle{display:block;color:#d4001f;font-size:1rem;transition:transform .1s}
+#bNorth small{font-size:.6rem;font-weight:700;color:var(--muted)}
 .legend{position:absolute;left:8px;top:calc(8px + var(--top));display:flex;flex-wrap:wrap;gap:4px;max-width:calc(100% - 70px);z-index:5}
 .legend button{border:0;border-radius:99px;padding:3px 10px;background:var(--surface);box-shadow:var(--shadow);font-size:.74rem;display:flex;align-items:center;gap:5px}
 .legend button.off{opacity:.45}
@@ -107,6 +110,8 @@ a{color:var(--accent)}
   <div class="legend" id="legend"></div>
   <button class="fab" id="bLoc" style="top:8px" title="Mijn locatie">📍</button>
   <button class="fab" id="bFit" style="top:60px" title="Alles in beeld">⤢</button>
+  <button class="fab" id="bHead" style="top:112px" title="Kaart draait mee met je looprichting">🧭</button>
+  <button class="fab" id="bNorth" style="top:164px;display:none" title="Noorden naar boven"><span id="needle">▲</span><small>N</small></button>
   <div id="tour"></div>
 </section>
 
@@ -224,7 +229,8 @@ async function initMap() {
   const pin = el("div", { class: "stay-pin", title: G.stay.name }, "🏠");
   pin.addEventListener("click", e => { e.stopPropagation(); openStay(true); });
   new maplibregl.Marker({ element: pin }).setLngLat([G.stay.lon, G.stay.lat]).addTo(map);
-  map.touchZoomRotate.disableRotation();
+  map.touchPitch.disable();   // two fingers rotate and zoom, but never tilt
+  map.on("rotate", updateNorth);
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
   map.on("style.load", addOverlays);
   map.on("load", () => { $("#loading").remove(); mapReady = true; fitAll(false); });
@@ -297,10 +303,51 @@ function startGps(centre) {
     const first = !state.user; state.user = { lat: pos.coords.latitude, lon: pos.coords.longitude, acc: pos.coords.accuracy };
     $("#bLoc").classList.add("on"); if (first && centre && map) map.easeTo({ center: [state.user.lon, state.user.lat], zoom: Math.max(map.getZoom(), 16) });
     refresh(); renderTour();
+    if (head.on && map) {
+      if (head.compass) map.jumpTo({ center: [state.user.lon, state.user.lat] });   // compass rotates every frame; an animation would be cut off
+      else map.easeTo({ center: [state.user.lon, state.user.lat], duration: 500 });
+      // no compass reading: turn with the walking direction (GPS course) once you move
+      const c = pos.coords; if (!head.compass && c.heading != null && !isNaN(c.heading) && c.speed > 0.6) map.easeTo({ bearing: c.heading, duration: 500 });
+    }
   }, err => { toast(err.code === 1 ? "Locatie geweigerd. Zet locatie aan voor Safari in Instellingen › Privacy › Locatievoorzieningen." : "Locatie niet beschikbaar: " + err.message, 5000); watchId = null; $("#bLoc").classList.remove("on"); }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
 }
 $("#bLoc").onclick = () => startGps(true);
 $("#bFit").onclick = () => { if (!state.tour) { state.focusRoute = null; refresh(); } fitAll(); };
+
+/* ---------- rotation: two-finger rotate, north button, "turn with me" ---------- */
+const head = { on: false, compass: false, val: null, raf: 0 };
+function updateNorth() {
+  const b = map ? map.getBearing() : 0;
+  $("#needle").style.transform = `rotate(${-b}deg)`;
+  $("#bNorth").style.display = head.on || Math.abs(b) > 1 ? "flex" : "none";
+}
+function onOrient(e) {
+  let h = e.webkitCompassHeading;                                   // iOS
+  if (h == null && e.absolute && e.alpha != null) h = 360 - e.alpha;   // Android (absolute event)
+  if (h == null || isNaN(h)) return;
+  h = (h + ((screen.orientation && screen.orientation.angle) || window.orientation || 0) + 360) % 360;
+  head.compass = true;
+  // smooth the jittery compass: move part of the way along the shortest arc
+  head.val = head.val == null ? h : (head.val + (((h - head.val + 540) % 360) - 180) * 0.25 + 360) % 360;
+  if (!head.raf) head.raf = requestAnimationFrame(() => { head.raf = 0; if (head.on && map) map.setBearing(head.val); });
+}
+async function setHeading(on) {
+  if (on) {
+    if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+      try { if (await DeviceOrientationEvent.requestPermission() !== "granted") { toast("Geen toegang tot het kompas. De kaart draait dan mee met je looprichting zodra je wandelt.", 5000); } }
+      catch (e) { /* not asked from a tap, or refused */ }
+    }
+    window.addEventListener("deviceorientationabsolute", onOrient); window.addEventListener("deviceorientation", onOrient);
+    head.on = true; head.compass = false; head.val = null; startGps(true);
+    setTimeout(() => { if (head.on && !head.compass) toast("Geen kompas gevonden: de kaart draait mee met je looprichting zodra je wandelt.", 4500); }, 3000);
+  } else {
+    window.removeEventListener("deviceorientationabsolute", onOrient); window.removeEventListener("deviceorientation", onOrient);
+    head.on = false; if (map) map.easeTo({ bearing: 0, duration: 500 });
+  }
+  $("#bHead").classList.toggle("on", head.on); updateNorth();
+}
+$("#bHead").onclick = () => setHeading(!head.on);
+$("#bNorth").onclick = () => { if (head.on) setHeading(false); else if (map) map.easeTo({ bearing: 0, duration: 500 }); };
 
 /* ---------- poi sheet ---------- */
 const para = t => el("p", {}, t);
@@ -454,7 +501,7 @@ function renderInfo() {
   w.append(el("div", { class: "row" }, ...[["auto", "Thema automatisch"], ["light", "Licht"], ["dark", "Donker"]].map(([k, l]) => el("button", { class: "btn" + (store.get("theme", "auto") === k ? " on" : ""), onclick: () => { setTheme(k); renderInfo(); } }, l))));
   w.append(el("h2", {}, "Exporteren"), el("p", { class: "muted", style: "margin-top:0" }, "Alle plekken als GPX-waypoints, voor een andere kaart-app."),
     el("div", { class: "row" }, el("button", { class: "btn", onclick: exportGpx }, "⬇️ Alle plekken als GPX"), el("button", { class: "btn", onclick: () => { if (confirm("Alle ‘gezien’ en ‘bewaard’ wissen?")) { state.seen.clear(); state.fav.clear(); save(); refresh(); } } }, "↺ Voortgang wissen")));
-  w.append(el("p", { class: "muted", style: "font-size:.82rem;margin-top:22px" }, "Gidstekst uit ‘Londen’ © The Media Bay (reisroutes.be), alleen voor eigen gebruik. Kaart © OpenStreetMap-bijdragers (ODbL), tegels via Protomaps. Plekken met ⚠️ hadden foute coördinaten in de gids. Posities van gebouwen zijn waar mogelijk verfijnd met Wikipedia. Foto’s: Wikimedia Commons (zie bron per foto)."), el("p", { class: "muted", style: "font-size:.75rem" }, "Versie 2026-10-27 10:29"));
+  w.append(el("p", { class: "muted", style: "font-size:.82rem;margin-top:22px" }, "Gidstekst uit ‘Londen’ © The Media Bay (reisroutes.be), alleen voor eigen gebruik. Kaart © OpenStreetMap-bijdragers (ODbL), tegels via Protomaps. Plekken met ⚠️ hadden foute coördinaten in de gids. Posities van gebouwen zijn waar mogelijk verfijnd met Wikipedia. Foto’s: Wikimedia Commons (zie bron per foto)."), el("p", { class: "muted", style: "font-size:.75rem" }, "Versie 2026-10-27 10:49"));
 }
 function exportGpx() {
   const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
